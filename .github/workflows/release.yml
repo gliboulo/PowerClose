@@ -1,15 +1,12 @@
-name: Build & Release Windows EXE
+name: Build & Release Windows EXE (MSVC)
 
 on:
-  # Build when you publish a GitHub Release in the GUI
   release:
-    types: [published]
-  # Or when you push a tag like v1.0.0 (from GUI or Git)
+    types: [published]          # runs when you Publish a release in the GUI
   push:
     tags:
-      - "v*"
-  # Optional: run manually from the Actions tab
-  workflow_dispatch:
+      - "v*"                    # also runs when you push a tag like v1.0.0
+  workflow_dispatch:            # manual run button (optional)
 
 jobs:
   build:
@@ -19,25 +16,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2 (MinGW-w64)
-        uses: msys2/setup-msys2@v2
+      # Set up the Visual C++ build environment (same toolchain as "x64 Native Tools Prompt")
+      - name: MSVC dev cmd
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          msystem: MINGW64
-          install: >-
-            base-devel
-            mingw-w64-x86_64-gcc
-            zip
+          arch: x64
 
-      - name: Build .exe
-        shell: msys2 {0}
+      - name: Build EXE with cl (matches the working local command)
+        shell: cmd
         run: |
-          # Build (link COM + Shell APIs)
-          # If -static causes trouble, remove it.
-          gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c -luser32 -lkernel32 -lole32 -lshell32
-          # Package
-          zip PowerClose_windows.zip PowerClose.exe
+          rem Compile all C files, wide-char Windows API, optimized, and link Windows libs
+          rem If your entry file has a different name than main(), that's fine as long as one defines main/wWinMain.
+          cl /nologo /O2 /W4 /utf-8 /DUNICODE /D_UNICODE /Fe:PowerClose.exe *.c ^
+            user32.lib kernel32.lib shell32.lib ole32.lib uuid.lib
 
-      - name: Upload artifact (for debugging)
+          if not exist PowerClose.exe (
+            echo Build failed & exit /b 1
+          )
+
+          tar -a -c -f PowerClose_windows.zip PowerClose.exe
+
+      - name: Upload artifact (for CI runs)
         uses: actions/upload-artifact@v4
         with:
           name: PowerClose_windows
@@ -53,8 +52,8 @@ jobs:
           name: PowerClose_windows
           path: .
 
-      # Case 1: Tag push (v1.0.0 etc.) → create/update release for that tag
-      - name: Create/Update Release (tag push)
+      # If triggered by a tag push (v1.0.0, etc.), create/update that tag's release
+      - name: Create/Update Release for tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
@@ -63,8 +62,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Case 2: Release published via GUI → attach to that release
-      - name: Attach to Published Release (GUI)
+      # If triggered by publishing a release in the GUI, attach to that release
+      - name: Attach asset to published Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
