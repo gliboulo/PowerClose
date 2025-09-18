@@ -1,15 +1,15 @@
-name: Build & Release Windows EXE (MinGW)
+name: Build & Release Windows EXE (MinGW + Icon)
 
 on:
   release:
-    types: [published]       # when you publish a Release in the GUI
+    types: [published]         # when you click “Publish release” in GUI
   push:
     tags:
-      - "v*"                 # or when you push a tag like v1.0.0
-  workflow_dispatch:
+      - "v*"                   # or when you push a tag like v1.0.0
+  workflow_dispatch:           # optional manual run from Actions tab
 
 permissions:
-  contents: write            # <-- needed to create/update releases & upload assets
+  contents: write              # required to upload to Releases
 
 jobs:
   build:
@@ -26,16 +26,27 @@ jobs:
           install: >-
             base-devel
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
             zip
 
-      - name: Build .exe (COM + Shell + UUID)
+      - name: Build EXE (embed icon + link COM/Shell/UUID)
         shell: msys2 {0}
         run: |
-          gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c \
-              -luser32 -lkernel32 -lole32 -lshell32 -luuid
-          zip PowerClose_windows.zip PowerClose.exe
+          # Build resource from RC (uses powerclose.ico)
+          windres -i powerclose.rc -o powerclose_res.o
 
-      - name: Upload artifact (for CI runs)
+          # Compile & link; remove -static if it causes CRT issues
+          gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c powerclose_res.o \
+              -luser32 -lkernel32 -lole32 -lshell32 -luuid
+
+          # Package: include EXE, and include ICO in the ZIP for convenience
+          if [ -f powerclose.ico ]; then
+            zip PowerClose_windows.zip PowerClose.exe powerclose.ico
+          else
+            zip PowerClose_windows.zip PowerClose.exe
+          fi
+
+      - name: Upload artifact (for CI debugging)
         uses: actions/upload-artifact@v4
         with:
           name: PowerClose_windows
@@ -51,7 +62,7 @@ jobs:
           name: PowerClose_windows
           path: .
 
-      # If triggered by a tag push, create/update the tag's release
+      # If triggered by a tag push (e.g., v1.0.0), create/update that tag's release
       - name: Create/Update Release for tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
