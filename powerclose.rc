@@ -1,0 +1,5 @@
+// Ressources de PowerClose — icône intégrée au binaire
+#include <windows.h>
+#define IDI_APPICON 101
+
+IDI_APPICON ICON "powerclose.ico"
