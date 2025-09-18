@@ -1,9 +1,14 @@
-name: Build & Release (Windows)
+name: Build & Release Windows EXE
 
 on:
+  # Build when you publish a GitHub Release in the GUI
+  release:
+    types: [published]
+  # Or when you push a tag like v1.0.0 (from GUI or Git)
   push:
     tags:
       - "v*"
+  # Optional: run manually from the Actions tab
   workflow_dispatch:
 
 jobs:
@@ -26,30 +31,44 @@ jobs:
       - name: Build .exe
         shell: msys2 {0}
         run: |
-          gcc -O2 -Wall -municode -static -o PowerClose.exe *.c -luser32 -lkernel32
-          ./PowerClose.exe --help || true
+          # Build (link COM + Shell APIs)
+          # If -static causes trouble, remove it.
+          gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c -luser32 -lkernel32 -lole32 -lshell32
+          # Package
           zip PowerClose_windows.zip PowerClose.exe
 
-      - name: Upload artifact (for CI runs)
+      - name: Upload artifact (for debugging)
         uses: actions/upload-artifact@v4
         with:
           name: PowerClose_windows
           path: PowerClose_windows.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: windows-latest
     steps:
-      - name: Download artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: PowerClose_windows
           path: .
 
-      - name: Create GitHub Release
+      # Case 1: Tag push (v1.0.0 etc.) → create/update release for that tag
+      - name: Create/Update Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          files: PowerClose_windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Case 2: Release published via GUI → attach to that release
+      - name: Attach to Published Release (GUI)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: PowerClose_windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
