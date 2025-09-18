@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write            # required to upload to Releases
 
 jobs:
   build:
@@ -30,14 +30,13 @@ jobs:
       - name: Build EXE (embed icon + link COM/Shell/UUID)
         shell: msys2 {0}
         run: |
-          # Compile resource: RC -> COFF .res for 64-bit PE
+          # RC -> COFF .res (64-bit PE)
           windres -O coff -F pe-x86-64 -i powerclose.rc -o appicon.res
-
-          # Compile & link; remove -static if CRT issues on runner
+          # Compile & link (remove -static if CRT issues)
           gcc -O2 -Wall -s -municode -o PowerClose.exe *.c appicon.res \
               -luser32 -lkernel32 -lole32 -lshell32 -luuid
 
-      - name: Upload artifact (optional)
+      - name: Upload artifact (EXE)
         uses: actions/upload-artifact@v4
         with:
           name: PowerClose.exe
@@ -47,7 +46,7 @@ jobs:
     needs: build
     runs-on: windows-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # gh CLI auth
     steps:
       - name: Download built EXE
         uses: actions/download-artifact@v4
@@ -55,18 +54,23 @@ jobs:
           name: PowerClose.exe
           path: .
 
-      # If triggered by a tag push, ensure the release exists then upload
+      # Tag-push path: ensure a release exists, then upload (PowerShell syntax)
       - name: Create release if missing (tag push)
         if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
         run: |
-          set TAG=${{ github.ref_name }}
-          gh release view "%TAG%" --repo "${{ github.repository }}" || ^
-            gh release create "%TAG%" --title "%TAG%" --notes "Automated build" --repo "${{ github.repository }}"
-          gh release upload "%TAG%" PowerClose.exe --clobber --repo "${{ github.repository }}"
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          if (-not (gh release view $tag --repo $repo *> $null)) {
+            gh release create $tag --title $tag --notes "Automated build" --repo $repo
+          }
+          gh release upload $tag PowerClose.exe --clobber --repo $repo
 
-      # If triggered by publishing a release in the GUI, upload to it
+      # GUI-publish path: upload EXE to that release (PowerShell syntax)
       - name: Upload to published release (GUI)
         if: github.event_name == 'release'
+        shell: pwsh
         run: |
-          set TAG=${{ github.event.release.tag_name }}
-          gh release upload "%TAG%" PowerClose.exe --clobber --repo "${{ github.repository }}"
+          $tag = "${{ github.event.release.tag_name }}"
+          $repo = "${{ github.repository }}"
+          gh release upload $tag PowerClose.exe --clobber --repo $repo
