@@ -1,20 +1,19 @@
-name: Build & Release Windows EXE (MinGW + Icon)
+name: Build & Release Windows EXE (icon embedded)
 
 on:
   release:
-    types: [published]         # when you click “Publish release” in GUI
+    types: [published]       # runs when you click “Publish release”
   push:
     tags:
-      - "v*"                   # or when you push a tag like v1.0.0
-  workflow_dispatch:           # optional manual run from Actions tab
+      - "v*"                 # or when you push a tag like v1.0.0
+  workflow_dispatch:
 
 permissions:
-  contents: write              # required to upload to Releases
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,58 +26,47 @@ jobs:
             base-devel
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-binutils
-            zip
 
       - name: Build EXE (embed icon + link COM/Shell/UUID)
         shell: msys2 {0}
         run: |
-          # Build resource from RC (uses powerclose.ico)
-          windres -i powerclose.rc -o powerclose_res.o
+          # Compile resource: RC -> COFF .res for 64-bit PE
+          windres -O coff -F pe-x86-64 -i powerclose.rc -o appicon.res
 
-          # Compile & link; remove -static if it causes CRT issues
-          gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c powerclose_res.o \
+          # Compile & link; remove -static if CRT issues on runner
+          gcc -O2 -Wall -s -municode -o PowerClose.exe *.c appicon.res \
               -luser32 -lkernel32 -lole32 -lshell32 -luuid
 
-          # Package: include EXE, and include ICO in the ZIP for convenience
-          if [ -f powerclose.ico ]; then
-            zip PowerClose_windows.zip PowerClose.exe powerclose.ico
-          else
-            zip PowerClose_windows.zip PowerClose.exe
-          fi
-
-      - name: Upload artifact (for CI debugging)
+      - name: Upload artifact (optional)
         uses: actions/upload-artifact@v4
         with:
-          name: PowerClose_windows
-          path: PowerClose_windows.zip
+          name: PowerClose.exe
+          path: PowerClose.exe
 
   release:
     needs: build
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Download build artifact
+      - name: Download built EXE
         uses: actions/download-artifact@v4
         with:
-          name: PowerClose_windows
+          name: PowerClose.exe
           path: .
 
-      # If triggered by a tag push (e.g., v1.0.0), create/update that tag's release
-      - name: Create/Update Release for tag
+      # If triggered by a tag push, ensure the release exists then upload
+      - name: Create release if missing (tag push)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: PowerClose_windows.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set TAG=${{ github.ref_name }}
+          gh release view "%TAG%" --repo "${{ github.repository }}" || ^
+            gh release create "%TAG%" --title "%TAG%" --notes "Automated build" --repo "${{ github.repository }}"
+          gh release upload "%TAG%" PowerClose.exe --clobber --repo "${{ github.repository }}"
 
-      # If triggered by publishing a release in the GUI, attach to that release
-      - name: Attach asset to published Release
+      # If triggered by publishing a release in the GUI, upload to it
+      - name: Upload to published release (GUI)
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.release.tag_name }}
-          files: PowerClose_windows.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set TAG=${{ github.event.release.tag_name }}
+          gh release upload "%TAG%" PowerClose.exe --clobber --repo "${{ github.repository }}"
