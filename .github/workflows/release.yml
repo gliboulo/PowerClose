@@ -2,11 +2,14 @@ name: Build & Release Windows EXE (MinGW)
 
 on:
   release:
-    types: [published]     # runs when you click “Publish release”
+    types: [published]       # when you publish a Release in the GUI
   push:
     tags:
-      - "v*"               # also runs when you push a tag like v1.0.0
-  workflow_dispatch:        # optional manual run
+      - "v*"                 # or when you push a tag like v1.0.0
+  workflow_dispatch:
+
+permissions:
+  contents: write            # <-- needed to create/update releases & upload assets
 
 jobs:
   build:
@@ -28,7 +31,6 @@ jobs:
       - name: Build .exe (COM + Shell + UUID)
         shell: msys2 {0}
         run: |
-          # If static linking causes trouble, remove -static
           gcc -O2 -Wall -s -municode -static -o PowerClose.exe *.c \
               -luser32 -lkernel32 -lole32 -lshell32 -luuid
           zip PowerClose_windows.zip PowerClose.exe
@@ -49,17 +51,18 @@ jobs:
           name: PowerClose_windows
           path: .
 
-      # Attach to tag-triggered releases
+      # If triggered by a tag push, create/update the tag's release
       - name: Create/Update Release for tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
           files: PowerClose_windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Attach to GUI-published releases
+      # If triggered by publishing a release in the GUI, attach to that release
       - name: Attach asset to published Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
